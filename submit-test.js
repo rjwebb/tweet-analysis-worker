@@ -1,10 +1,14 @@
 const text = 'hello how are you';
+const localUrl = 'http://localhost:8787';
 
-const response = await fetch('http://localhost:8787', {
+const serverUrl = 'https://tweet-analysis-worker.bob-wbb.workers.dev';
+
+const response = await fetch(serverUrl, {
 	method: 'POST',
 	body: JSON.stringify({ text }),
 	headers: { 'content-type': 'application/json' },
 });
 
-console.log(response);
-console.log(JSON.stringify(await response.json(), undefined, 4));
+const responseData = await response.json();
+
+console.log(responseData.choices[0].message.content);

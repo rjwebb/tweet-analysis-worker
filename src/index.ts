@@ -12,15 +12,27 @@
  */
 
 import OpenAI from 'openai';
+import { classifyResponseFormat, systemPrompt } from './classify';
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
+		const corsHeaders = {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
+			'Access-Control-Allow-Headers': '*',
+		};
+
+		// Handle preflight
+		if (request.method === 'OPTIONS') {
+			return new Response(null, { headers: corsHeaders });
+		}
+
 		if (request.method !== 'POST') {
-			return new Response('Request method must be POST', { status: 400 });
+			return new Response('Request method must be POST', { status: 400, headers: corsHeaders });
 		}
 
 		if (request.headers.get('content-type') !== 'application/json') {
-			return new Response('Request content-type must be application/json', { status: 400 });
+			return new Response('Request content-type must be application/json', { status: 400, headers: corsHeaders });
 		}
 
 		let text;
@@ -28,84 +40,40 @@ export default {
 			const body = await request.json();
 			text = (body as any).text;
 		} catch (e) {
-			return new Response('Invalid JSON body', { status: 400 });
+			return new Response('Invalid JSON body', { status: 400, headers: corsHeaders });
 		}
 
 		// submit text
 		const client = new OpenAI({
 			baseURL: `${env.PROVIDER_URL}`,
 			apiKey: `${env.PROVIDER_KEY}`,
-			dangerouslyAllowBrowser: true,
 		});
 
-		const response = await client.chat.completions.create({
-			model: env.MODEL_NAME,
-			messages: [
-				{
-					role: 'system',
-					content: `You are a tweet classifier.
-	Given a tweet, output a JSON object with scores between 0 and 1 (inclusive) for each of the following categories:
-	- Offensive: Contains slurs, harassment, or hateful/abusive language.
-	- Beef: Targeted negativity or conflict between users, communities, or groups.
-	- Dunk: Mocking or ridiculing someone/something, often humorously.
-	- Horny: Expresses sexual desire, thirst, or innuendo.
-	- NSFW: Explicit sexual or graphic adult content (stronger than “Horny”).
-
-	The scores should represent the likelihood that the tweet belongs in each category. A score of 0 means "not at all" and 1 means "definitely."
-
-	Format your output strictly as JSON:
-	\`
-	{
-		"Offensive": 0.0,
-		"Beef": 0.0,
-		"Dunk": 0.0,
-		"Horny": 0.0,
-		"NSFW": 0.0
-	}
-
-	\`
-
-	Example input: "Tweet: "Lmao this guy can’t even dribble, what a clown.""
-
-	\`
-	{
-		"Offensive": 0.0,
-		"Beef": 0.2,
-		"Dunk": 0.9,
-		"Horny": 0.0,
-		"NSFW": 0.0
-	}
-	\`
-
-					`,
+		try {
+			const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${env.PROVIDER_KEY}`,
 				},
-				{
-					role: 'user',
-					content: `Tweet: '${text}'`,
-				},
-			],
-			response_format: {
-				type: 'json_schema',
-				max_tokens: 10000,
-				json_schema: {
-					name: 'tweet_classification',
-					schema: {
-						type: 'object',
-						properties: {
-							Offensive: { type: 'number', minimum: 0, maximum: 1 },
-							Beef: { type: 'number', minimum: 0, maximum: 1 },
-							Dunk: { type: 'number', minimum: 0, maximum: 1 },
-							Horny: { type: 'number', minimum: 0, maximum: 1 },
-							NSFW: { type: 'number', minimum: 0, maximum: 1 },
+				body: JSON.stringify({
+					model: env.MODEL_NAME,
+					messages: [
+						systemPrompt,
+						{
+							role: 'user',
+							content: `Tweet: '${text}'`,
 						},
-						required: ['Offensive', 'Beef', 'Dunk', 'Horny', 'NSFW'],
-						additionalProperties: false,
-					},
-				},
-			},
-		});
-		// pass response to client
+					],
+					response_format: classifyResponseFormat,
+				}),
+			});
 
-		return new Response(JSON.stringify(response), { headers: { 'content-type': 'application/json' } });
+			return Response.json(await response.json(), { headers: corsHeaders });
+		} catch (e) {
+			console.log('error from upstream:');
+			console.log(e);
+			return new Response(`Error from upstream: ${e}`, { headers: corsHeaders, status: 400 });
+		}
 	},
 } satisfies ExportedHandler<Env>;

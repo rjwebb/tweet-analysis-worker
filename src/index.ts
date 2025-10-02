@@ -11,7 +11,6 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
-import OpenAI from 'openai';
 import { classifyResponseFormat, systemPrompt } from './classify';
 
 export default {
@@ -36,19 +35,22 @@ export default {
 		}
 
 		let text;
+		let model;
 		try {
 			const body = await request.json();
 			text = (body as any).text;
+			model = (body as any).model;
 		} catch (e) {
 			return new Response('Invalid JSON body', { status: 400, headers: corsHeaders });
 		}
 
-		// submit text
-		const client = new OpenAI({
-			baseURL: `${env.PROVIDER_URL}`,
-			apiKey: `${env.PROVIDER_KEY}`,
-		});
+		// the two accepted models
+		const acceptedModels = ['Qwen/Qwen3-30B-A3B', 'mistralai/Mistral-Small-3.2-24B-Instruct-2506'];
+		if (!acceptedModels.includes(model)) {
+			return new Response(`Invalid model. Accepted models are: ${acceptedModels.join(', ')}`, { status: 400, headers: corsHeaders });
+		}
 
+		// submit text
 		try {
 			const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
 				method: 'POST',
@@ -57,7 +59,7 @@ export default {
 					Authorization: `Bearer ${env.PROVIDER_KEY}`,
 				},
 				body: JSON.stringify({
-					model: env.MODEL_NAME,
+					model,
 					messages: [
 						systemPrompt,
 						{

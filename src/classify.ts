@@ -34,6 +34,8 @@ Example input: "Tweet: "Lmao this guy can’t even dribble, what a clown.""
 }
 \`
 
+/no_think
+
   `,
 } as const;
 

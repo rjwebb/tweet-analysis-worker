@@ -96,7 +96,7 @@ export default {
 			}
 
 			try {
-				const prompt = `Tweet: ${JSON.stringify(text)}`;
+				const prompt = `<Tweet>${JSON.stringify(text)}</Tweet>`;
 				return Response.json(await callClassifier(env, model, prompt, classifyResponseFormat), { headers: corsHeaders });
 			} catch (e) {
 				console.log('error from upstream:');
@@ -109,7 +109,7 @@ export default {
 				return new Response('`texts` must be an array of strings', { status: 400, headers: corsHeaders });
 			}
 			try {
-				const formattedTweets = texts.map((entry, idx) => `${idx + 1}. ${JSON.stringify(entry)}`).join('\n');
+				const formattedTweets = texts.map((entry, idx) => `<Tweet id="${idx}">${JSON.stringify(entry)}</Tweet>`).join('\n');
 				const batchPrompt = `Tweets to classify (one per line):\n${formattedTweets}\nReturn a JSON array of ${texts.length} classification objects in the same order.`;
 				const results = await callClassifier(env, model, batchPrompt, classifyBatchResponseFormat);
 				return Response.json(results, { headers: corsHeaders });

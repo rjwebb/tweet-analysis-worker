@@ -39,22 +39,35 @@ Example input: "Tweet: "Lmao this guy can’t even dribble, what a clown.""
   `,
 } as const;
 
+const singleClassificationSchema = {
+	type: 'object',
+	properties: {
+		Offensive: { type: 'number', minimum: 0, maximum: 1 },
+		Beef: { type: 'number', minimum: 0, maximum: 1 },
+		Dunk: { type: 'number', minimum: 0, maximum: 1 },
+		Horny: { type: 'number', minimum: 0, maximum: 1 },
+		NSFW: { type: 'number', minimum: 0, maximum: 1 },
+	},
+	required: ['Offensive', 'Beef', 'Dunk', 'Horny', 'NSFW'],
+	additionalProperties: false,
+} as const;
+
 export const classifyResponseFormat = {
 	type: 'json_schema',
 	// max_tokens: 10000,
 	json_schema: {
 		name: 'tweet_classification',
+		schema: singleClassificationSchema,
+	},
+} as const;
+
+export const classifyBatchResponseFormat = {
+	type: 'json_schema',
+	json_schema: {
+		name: 'tweet_classification_batch',
 		schema: {
-			type: 'object',
-			properties: {
-				Offensive: { type: 'number', minimum: 0, maximum: 1 },
-				Beef: { type: 'number', minimum: 0, maximum: 1 },
-				Dunk: { type: 'number', minimum: 0, maximum: 1 },
-				Horny: { type: 'number', minimum: 0, maximum: 1 },
-				NSFW: { type: 'number', minimum: 0, maximum: 1 },
-			},
-			required: ['Offensive', 'Beef', 'Dunk', 'Horny', 'NSFW'],
-			additionalProperties: false,
+			type: 'array',
+			items: singleClassificationSchema,
 		},
 	},
 } as const;

@@ -11,28 +11,17 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+import OpenAI from 'openai';
 import { classifyBatchResponseFormat, classifyResponseFormat, systemPrompt } from './classify';
 
-type ResponseFormat = typeof classifyResponseFormat | typeof classifyBatchResponseFormat;
-
-const callClassifier = async (env: Env, model: string, userContent: string, responseFormat: ResponseFormat) => {
+const callClassifier = async (env: Env, body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming) => {
 	const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${env.PROVIDER_KEY}`,
 		},
-		body: JSON.stringify({
-			model,
-			messages: [
-				systemPrompt,
-				{
-					role: 'user',
-					content: userContent,
-				},
-			],
-			response_format: responseFormat,
-		}),
+		body: JSON.stringify(body),
 	});
 	const json = await response.json();
 	if (!response.ok) {
@@ -71,19 +60,23 @@ export default {
 		}
 
 		const model = body.model;
-
-		if (typeof model !== 'string') {
-			return new Response(`model parameter must be a string`, { status: 400, headers: corsHeaders });
-		}
-
-		// the two accepted models
-		const acceptedModels = ['Qwen/Qwen3-30B-A3B', 'mistralai/Mistral-Small-3.2-24B-Instruct-2506'];
-		if (!acceptedModels.includes(model)) {
-			return new Response(`Invalid model. Accepted models are: ${acceptedModels.join(', ')}`, { status: 400, headers: corsHeaders });
-		}
-
 		const text = body.text;
 		const texts = body.texts;
+		const openaiParams = body.params;
+
+		if (!openaiParams) {
+			if (typeof model !== 'string') {
+				return new Response(`model parameter must be a string`, { status: 400, headers: corsHeaders });
+			}
+
+			// the two accepted models
+			const acceptedModels = ['Qwen/Qwen3-30B-A3B', 'mistralai/Mistral-Small-3.2-24B-Instruct-2506'];
+			if (!acceptedModels.includes(model)) {
+				return new Response(`Invalid model. Accepted models are: ${acceptedModels.join(', ')}`, { status: 400, headers: corsHeaders });
+			}
+		}
+
+		let params;
 
 		if (text) {
 			// single item prompt
@@ -95,31 +88,47 @@ export default {
 				return new Response('`text` must be a string', { status: 400, headers: corsHeaders });
 			}
 
-			try {
-				const prompt = `<Tweet>${JSON.stringify(text)}</Tweet>`;
-				return Response.json(await callClassifier(env, model, prompt, classifyResponseFormat), { headers: corsHeaders });
-			} catch (e) {
-				console.log('error from upstream:');
-				console.log(e);
-				return new Response(`Error from upstream: ${e}`, { headers: corsHeaders, status: 400 });
-			}
+			params = {
+				model,
+				messages: [
+					systemPrompt,
+					{
+						role: 'user' as const,
+						content: `<Tweet>${JSON.stringify(text)}</Tweet>`,
+					},
+				],
+				response_format: classifyResponseFormat,
+			};
 		} else if (texts) {
 			// multiple item prompt
 			if (!Array.isArray(texts) || !texts.every((t) => typeof t === 'string')) {
 				return new Response('`texts` must be an array of strings', { status: 400, headers: corsHeaders });
 			}
-			try {
-				const formattedTweets = texts.map((entry, idx) => `<Tweet id="${idx}">${JSON.stringify(entry)}</Tweet>`).join('\n');
-				const batchPrompt = `Tweets to classify (one per line):\n${formattedTweets}\nReturn a JSON array of ${texts.length} classification objects in the same order.`;
-				const results = await callClassifier(env, model, batchPrompt, classifyBatchResponseFormat);
-				return Response.json(results, { headers: corsHeaders });
-			} catch (e) {
-				console.log('error from upstream:');
-				console.log(e);
-				return new Response(`Error from upstream: ${e}`, { headers: corsHeaders, status: 400 });
-			}
+
+			const formattedTweets = texts.map((entry, idx) => `<Tweet id="${idx}">${JSON.stringify(entry)}</Tweet>`).join('\n');
+			params = {
+				model,
+				messages: [
+					systemPrompt,
+					{
+						role: 'user' as const,
+						content: `Tweets to classify (one per line):\n${formattedTweets}\nReturn a JSON array of ${texts.length} classification objects in the same order.`,
+					},
+				],
+				response_format: classifyBatchResponseFormat,
+			};
+		} else if (openaiParams) {
+			params = openaiParams as any;
 		} else {
 			return new Response('either a `text` or `texts` field must be supplied', { status: 400, headers: corsHeaders });
+		}
+
+		try {
+			return Response.json(await callClassifier(env, params), { headers: corsHeaders });
+		} catch (e) {
+			console.log('error from upstream:');
+			console.log(e);
+			return new Response(`Error from upstream: ${e}`, { headers: corsHeaders, status: 400 });
 		}
 	},
 } satisfies ExportedHandler<Env>;
